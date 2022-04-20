@@ -1,0 +1,172 @@
+#pragma kernel Init
+#pragma kernel CreateVoxel
+#pragma kernel UpdateMeshColor
+
+struct VoxelData
+{
+    float3 position;
+    float4 color;
+    int isRendering;
+};
+
+struct VertexData
+{
+    float3 position;
+    float4 color;
+};
+
+RWStructuredBuffer<VoxelData> VoxelBuffer;
+StructuredBuffer<int> IndexBuffer;
+RWStructuredBuffer<VertexData> VertexBuffer;
+// RWStructuredBuffer<DebugData> DebugBuffer;
+int voxelCountOneLine;
+int voxelSizeOneLine;
+float voxelScale;
+float4 VoxelVertices[8];
+float4x4 LocalToWorldMatrix;
+float4x4 MatrixV;
+float4x4 MatrixP;
+float4 TextureSize;
+Texture2D< float4 > CameraImage;
+
+float map(float value, float min1, float max1, float min2, float max2)
+{
+    return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
+}
+
+[numthreads(2,2,2)]
+void Init (uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x + (id.y * voxelCountOneLine) + (id.z * voxelCountOneLine * voxelCountOneLine);
+    VoxelData data;
+    data.position = float3(id.x * voxelScale - (voxelSizeOneLine*0.5), id.y * voxelScale - (voxelSizeOneLine*0.5), id.z * voxelScale - (voxelSizeOneLine*0.5));
+    data.color = float4(1, 0, 0, 1);
+    data.isRendering = 0;
+
+    VoxelBuffer[idx] = data;
+}
+
+[numthreads(8,1,1)]
+void CreateVoxel (uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x + (id.y * voxelCountOneLine) + (id.z * voxelCountOneLine * voxelCountOneLine);
+    idx *= 3;
+
+    int i0 = IndexBuffer[idx];
+    int i1 = IndexBuffer[idx+1];
+    int i2 = IndexBuffer[idx+2];
+
+    float3 v0 = mul(LocalToWorldMatrix, float4(VertexBuffer[i0].position, 1)).xyz;
+    float3 v1 = mul(LocalToWorldMatrix, float4(VertexBuffer[i1].position, 1)).xyz;
+    float3 v2 = mul(LocalToWorldMatrix, float4(VertexBuffer[i2].position, 1)).xyz;
+
+    float4 c = (VertexBuffer[i0].color + VertexBuffer[i1].color + VertexBuffer[i2].color) / 3;
+
+    // float3 v0 = MeshBuffer[idx].vertex;
+    // float3 v1 = MeshBuffer[idx+1].vertex;
+    // float3 v2 = MeshBuffer[idx+2].vertex;
+
+    //ポリゴンごとのAABBを計算
+    float min_x = min(min(v0.x, v1.x), v2.x);
+    float min_y = min(min(v0.y, v1.y), v2.y);
+    float min_z = min(min(v0.z, v1.z), v2.z);
+
+    float max_x = max(max(v0.x, v1.x), v2.x);
+    float max_y = max(max(v0.y, v1.y), v2.y);
+    float max_z = max(max(v0.z, v1.z), v2.z);
+
+    int offset = (int)(voxelCountOneLine * 0.5f);
+
+    //ポリゴンのAABBとvoxelのAABBで交差しているvoxelのindexを計算
+    int min_x_idx = floor(min_x / voxelScale) + offset;
+    int min_y_idx = floor(min_y / voxelScale) + offset;
+    int min_z_idx = floor(min_z / voxelScale) + offset;
+
+    int max_x_idx = ceil(max_x / voxelScale) + offset;
+    int max_y_idx = ceil(max_y / voxelScale) + offset;
+    int max_z_idx = ceil(max_z / voxelScale) + offset;
+
+    float3 f0 = v1 - v0;
+    float3 f1 = v2 - v1;
+    float3 f2 = v0 - v2;
+
+    // DebugBuffer[idx].index = float3(min_x, max_x, 0);
+
+    float3 right = float3(1,0,0);
+    float3 up = float3(0,1,0);
+    float3 forward = float3(0,0,1);
+
+    //分離軸を計算
+    float3 axises[13];
+    axises[0] = cross(right, f0);
+    axises[1] = cross(right, f1);
+    axises[2] = cross(right, f2);
+    axises[3] = cross(up, f0);
+    axises[4] = cross(up, f1);
+    axises[5] = cross(up, f2);
+    axises[6] = cross(forward, f0);
+    axises[7] = cross(forward, f1);
+    axises[8] = cross(forward, f2);
+
+    axises[9] = right;
+    axises[10] = up;
+    axises[11] = forward;
+
+    axises[12] = normalize(cross(f0, f1));
+
+    
+    for (int x = min_x_idx; x < max_x_idx; x++)
+    {
+        for (int y = min_y_idx; y < max_y_idx; y++)
+        {
+            for (int z = min_z_idx; z < max_z_idx; z++)
+            {
+                bool isIntersect = true;
+                for (int k = 0; k < 13; k++)
+                {
+                    float a = dot(axises[k], v0);
+                    float b = dot(axises[k], v1);
+                    float c = dot(axises[k], v2);
+                    float _min = min(min(a, b), c);
+                    float _max = max(max(a, b), c);
+
+                    float ds[8];
+                    for (int v = 0; v < 8; v++)
+                    {
+                        float d = dot(axises[k], VoxelVertices[v].xyz + float3(x * voxelScale - voxelSizeOneLine * 0.5, y * voxelScale - voxelSizeOneLine * 0.5, z * voxelScale - voxelSizeOneLine * 0.5));
+                        ds[v] = d;
+                    }
+                    float v_min = min(min(min(min(min(min(ds[0], ds[1]),ds[3]),ds[4]),ds[5]),ds[6]),ds[7]);
+                    float v_max = max(max(max(max(max(max(ds[0], ds[1]),ds[3]),ds[4]),ds[5]),ds[6]),ds[7]);
+
+                    if (v_min > _max || _min > v_max)
+                    {
+                        isIntersect = false;
+                    }
+                }
+                if(isIntersect){
+                    int id = x + (y * voxelCountOneLine) + (z * voxelCountOneLine * voxelCountOneLine);
+                    VoxelBuffer[id].isRendering = 1;
+                    VoxelBuffer[id].color = c;
+                }
+            }
+        }
+    }
+}
+
+[numthreads(8,1,1)]
+void UpdateMeshColor(uint id : SV_DispatchThreadID)
+{
+    float4 p = mul(mul(MatrixP, mul(MatrixV, LocalToWorldMatrix)), float4(VertexBuffer[id.x].position, 1));
+    p /= p.w;
+
+    if(p.x > -1 && p.x < 1 && p.y > -1 && p.y < 1){
+        float2 _uv = float2((p.x+1)*0.5, (p.y+1)*0.5); //-1~1を0~1に変換
+        float2 __uv = _uv;
+        __uv.x = 1.0 - _uv.y;
+        __uv.y = map(1.0 - _uv.x, 0, 1, 0.2, 0.8);
+        uint2 uv = uint2(__uv.x*TextureSize.x, __uv.y*TextureSize.y);
+        float4 _c = CameraImage[uv];
+        VertexBuffer[id.x].color = _c;//float4(1, 0, 0, 1);
+    }
+}
