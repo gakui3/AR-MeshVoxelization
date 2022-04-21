@@ -5,10 +5,13 @@ This project is an experiment in voxelization of mesh created with ARFoundation.
 
 <img width="200" alt="スクリーンショット 2021-11-18 23 32 00" src="https://user-images.githubusercontent.com/65954422/164364387-f44f8744-1aae-4020-b90b-04ad672bd8b9.gif">
 
-The base of the algorithm is referenced in this repository.
+The base of the algorithm is referenced in this repository.  
+https://github.com/gakui3/VoxelRenderer
 
 Unity : 2020.3.33
 
+<br>
+<br>
 how to use
 <br>
 1. launching the application, scan the around area and create a mesh.  
