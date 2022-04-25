@@ -160,6 +160,7 @@ MonoBehaviour:
   voxelMaterial: {fileID: 2100000, guid: 663f419bff1a2450eae47e949e1cc594, type: 2}
   arCameraManager: {fileID: 428088486}
   arCameraBackground: {fileID: 428088482}
+  test: {fileID: 7062220960944809416, guid: 79becc35a9ab24198b82208bd7032459, type: 3}
 --- !u!4 &30014245
 Transform:
   m_ObjectHideFlags: 0

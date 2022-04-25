@@ -8,6 +8,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
+using System.Linq;
 
 public class GpuVoxelRenderer : MonoBehaviour
 {
@@ -18,6 +19,7 @@ public class GpuVoxelRenderer : MonoBehaviour
 
     ComputeBuffer voxelBuffer;
     ComputeBuffer argBuffer;
+    ComputeBuffer collisionDetectionBuffer;
     const int voxelSizeOneLine = 10;
     const int voxelCountOneLine = 128; //16 or 32 or 64 or 128 or 256
     float voxelScale;
@@ -42,6 +44,11 @@ public class GpuVoxelRenderer : MonoBehaviour
     [SerializeField] ARCameraManager arCameraManager;
     [SerializeField] ARCameraBackground arCameraBackground;
 
+    [SerializeField]
+    GameObject test;
+
+    Ray _ray;
+
     public struct VoxelData
     {
         public Vector3 position;
@@ -53,6 +60,13 @@ public class GpuVoxelRenderer : MonoBehaviour
     {
         public Vector3 position;
         public Color color;
+    }
+
+    public struct CollisionData
+    {
+        public int voxelIndex;
+        public float distance;
+        public Vector3 pos;
     }
 
     public struct DebugData
@@ -97,9 +111,20 @@ public class GpuVoxelRenderer : MonoBehaviour
 
     void Update()
     {
-        // updateBuffer();
         drawVoxels();
         updateMeshColor();
+
+        if (Input.touchCount > 0)
+        {
+            Touch touch = Input.GetTouch(0);
+            if (touch.phase == TouchPhase.Began)
+            {
+                Ray ray = Camera.main.ScreenPointToRay(touch.position);
+                hitTest(ray.direction, ray.origin);
+                Debug.Log(ray.direction);
+                _ray = ray;
+            }
+        }
     }
 
     public void CreateVoxel()
@@ -194,6 +219,9 @@ public class GpuVoxelRenderer : MonoBehaviour
         indexBuffer.SetData(indices);
 
         isReadyUpdateMeshColor = true;
+
+        //衝突判定用のappend bufferを定義
+        collisionDetectionBuffer = new ComputeBuffer(10, Marshal.SizeOf(typeof(CollisionData)), ComputeBufferType.Append);
     }
 
     void clearBuffer()
@@ -227,6 +255,28 @@ public class GpuVoxelRenderer : MonoBehaviour
         Graphics.DrawMeshInstancedIndirect(cloneMesh, 0, voxelMaterial, new Bounds(Vector3.zero, Vector3.one * 100), argBuffer);
     }
 
+    public void hitTest(Vector3 rayDir, Vector3 rayOrigin)
+    {
+        if (!isReadyCreateVoxel)
+            return;
+
+        collisionDetectionBuffer = new ComputeBuffer(10, Marshal.SizeOf(typeof(CollisionData)), ComputeBufferType.Append);
+        var _ray = rayDir.normalized;
+        voxelCalculator.SetVector("RayDir", new Vector4(_ray.x, _ray.y, _ray.z, 0));
+        voxelCalculator.SetVector("RayOrigin", new Vector4(rayOrigin.x, rayOrigin.y, rayOrigin.z, 0));
+        voxelCalculator.SetBuffer(3, "VoxelBuffer", voxelBuffer);
+        voxelCalculator.SetBuffer(3, "CollisionDetectionBuffer", collisionDetectionBuffer);
+        voxelCalculator.SetFloat("voxelScale", voxelScale);
+        voxelCalculator.Dispatch(3, voxelCountOneLine / 2, voxelCountOneLine / 2, voxelCountOneLine / 2);
+
+        CollisionData[] result = new CollisionData[10];
+        collisionDetectionBuffer.GetData(result);
+        var v = result
+                   .OrderByDescending(d => d.distance).ToArray<CollisionData>();
+
+        // GameObject.Instantiate(test, v[0].pos, quaternion.identity);
+    }
+
     void OnDisable()
     {
         voxelBuffer.Release();
@@ -249,5 +299,7 @@ public class GpuVoxelRenderer : MonoBehaviour
         Debug.DrawLine(new Vector3(voxelSizeOneLine * -0.5f, voxelSizeOneLine * 0.5f, voxelSizeOneLine * -0.5f), new Vector3(voxelSizeOneLine * -0.5f, voxelSizeOneLine * 0.5f, voxelSizeOneLine * 0.5f));
         Debug.DrawLine(new Vector3(voxelSizeOneLine * -0.5f, voxelSizeOneLine * 0.5f, voxelSizeOneLine * 0.5f), new Vector3(voxelSizeOneLine * 0.5f, voxelSizeOneLine * 0.5f, voxelSizeOneLine * 0.5f));
         Debug.DrawLine(new Vector3(voxelSizeOneLine * 0.5f, voxelSizeOneLine * 0.5f, voxelSizeOneLine * 0.5f), new Vector3(voxelSizeOneLine * 0.5f, voxelSizeOneLine * 0.5f, voxelSizeOneLine * -0.5f));
+
+        Debug.DrawLine(_ray.origin, _ray.origin + _ray.direction * 3f, Color.red);
     }
 }

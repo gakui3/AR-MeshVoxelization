@@ -1,6 +1,7 @@
 #pragma kernel Init
 #pragma kernel CreateVoxel
 #pragma kernel UpdateMeshColor
+#pragma kernel HitTest
 
 struct VoxelData
 {
@@ -15,9 +16,17 @@ struct VertexData
     float4 color;
 };
 
+struct CollisionData
+{
+    int voxelIndex;
+    float distance;
+    float3 pos;
+};
+
 RWStructuredBuffer<VoxelData> VoxelBuffer;
 StructuredBuffer<int> IndexBuffer;
 RWStructuredBuffer<VertexData> VertexBuffer;
+AppendStructuredBuffer<CollisionData> CollisionDetectionBuffer;
 // RWStructuredBuffer<DebugData> DebugBuffer;
 int voxelCountOneLine;
 int voxelSizeOneLine;
@@ -28,6 +37,8 @@ float4x4 MatrixV;
 float4x4 MatrixP;
 float4 TextureSize;
 Texture2D< float4 > CameraImage;
+float4 RayDir;
+float4 RayOrigin;
 
 float map(float value, float min1, float max1, float min2, float max2)
 {
@@ -168,5 +179,60 @@ void UpdateMeshColor(uint id : SV_DispatchThreadID)
         uint2 uv = uint2(__uv.x*TextureSize.x, __uv.y*TextureSize.y);
         float4 _c = CameraImage[uv];
         VertexBuffer[id.x].color = _c;//float4(1, 0, 0, 1);
+    }
+}
+
+[numthreads(2,2,2)]
+void HitTest (uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x + (id.y * voxelCountOneLine) + (id.z * voxelCountOneLine * voxelCountOneLine);
+    VoxelData vdata = VoxelBuffer[idx];
+    if(!vdata.isRendering)
+        return;
+
+    bool isIntersect = false;
+    float3 _dir = normalize(RayDir.xyz);
+    float2 aabb_x = float2(vdata.position.x - voxelScale * 0.5, vdata.position.x + voxelScale * 0.5);
+    float2 aabb_y = float2(vdata.position.y - voxelScale * 0.5, vdata.position.y + voxelScale * 0.5);
+    float2 aabb_z = float2(vdata.position.z - voxelScale * 0.5, vdata.position.z + voxelScale * 0.5);
+
+    float x01 = (aabb_x.x - RayOrigin.x) / _dir.x;
+    float x02 = (aabb_x.y - RayOrigin.x) / _dir.x;
+    float x_slab_in = min(x01, x02);
+    float x_slab_out = max(x01, x02);
+    if (x01 < 0 && x02 < 0)
+        return;
+
+    float y01 = (aabb_y.x - RayOrigin.y) / _dir.y;
+    float y02 = (aabb_y.y - RayOrigin.y) / _dir.y;
+    float y_slab_in = min(y01, y02);
+    float y_slab_out = max(y01, y02);
+    if (y01 < 0 && y02 < 0)
+        return;
+
+    float z01 = (aabb_z.x - RayOrigin.z) / _dir.z;
+    float z02 = (aabb_z.y - RayOrigin.z) / _dir.z;
+    float z_slab_in = min(z01, z02);
+    float z_slab_out = max(z01, z02);
+    if (z01 < 0 && z02 < 0)
+        return;
+
+    float maxIN = max(max(x_slab_in, y_slab_in), z_slab_in);
+    float minOUT = min(min(x_slab_out, y_slab_out), z_slab_out);
+
+    if (minOUT - maxIN > 0)
+    {
+        isIntersect = true;
+    }
+
+    if(isIntersect){
+        CollisionData cdata;
+        cdata.voxelIndex = idx;
+        cdata.distance = 0;
+        cdata.pos = vdata.position;
+        CollisionDetectionBuffer.Append(cdata);
+
+        vdata.isRendering = false;
+        VoxelBuffer[idx] = vdata;
     }
 }
