@@ -39,10 +39,81 @@ float4 TextureSize;
 Texture2D< float4 > CameraImage;
 float4 RayDir;
 float4 RayOrigin;
+float3 VoxelPolygonIndices[12] = {0,3,2, 2,1,0, 4,7,6, 6,5,4, 4,7,3, 3,0,4, 1,2,6, 6,5,1, 0,4,5, 5,1,0, 3,7,6, 6,2,3};
 
 float map(float value, float min1, float max1, float min2, float max2)
 {
     return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
+}
+
+bool detectPointIsEnclosedByPolygon(float3 p, float3 v0, float3 v1, float3 v2)
+{
+    float3 n = normalize(cross(v1 - v0, v2 - v1));
+
+    float3 n0 = normalize(cross(v1 - v0, p - v1));
+    float3 n1 = normalize(cross(v2 - v1, p - v2));
+    float3 n2 = normalize(cross(v0 - v2, p - v0));
+
+    if ((1.0 - dot(n, n0)) > 0.001) return false;
+    if ((1.0 - dot(n, n1)) > 0.001) return false;
+    if ((1.0 - dot(n, n2)) > 0.001) return false;
+
+    return true;
+}
+
+float calcDistancePointAndPlane(float3 p, float3 v0, float3 v1, float3 v2)
+{
+    float3 n = normalize(cross(v1 - v0, v2 - v1));
+    float3 g = (v0 + v1 + v2) / 3;
+    return abs(dot(n, p - g));
+}
+
+bool detectCollisionLineSegmentAndPlane(float3 a, float3 b, float3 v0, float3 v1, float3 v2)
+{
+
+    float3 n = normalize(cross(v1 - v0, v2 - v1));
+    float3 g = (v0 + v1 + v2) / 3;
+
+    if (dot((a - g), n) * dot((b - g), n) <= 0)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+float3 calcIntersectionLineSegmentAndPlane(float3 a, float3 b, float3 v0, float3 v1, float3 v2)
+{
+    float distAP = calcDistancePointAndPlane(a, v0, v1, v2);
+    float distBP = calcDistancePointAndPlane(b, v0, v1, v2);
+
+    float t = distAP / (distAP + distBP);
+
+    return (b - a) * t + a;
+}
+
+bool detectIsIntersectedLineSegmentAndPolygon(float3 a, float3 b, float3 v0, float3 v1, float3 v2)
+{
+    bool bCollision = detectCollisionLineSegmentAndPlane(a, b, v0, v1, v2);
+
+    if (bCollision)
+    {
+        float3 p = calcIntersectionLineSegmentAndPlane(a, b, v0, v1, v2);
+        if (detectPointIsEnclosedByPolygon(p, v0, v1, v2))
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    else
+    {
+        return false;
+    }
 }
 
 [numthreads(2,2,2)]

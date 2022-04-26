@@ -363,8 +363,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ray_origin: {x: 0, y: 0, z: 0}
-  ray_dir: {x: -1, y: -1, z: 0}
-  aabb_pos: {x: 1, y: 1, z: 0}
+  ray_dir: {x: 1.7, y: 0.2, z: 1}
+  aabb_pos: {x: 1, y: 0, z: 1}
   aabb_scale: 1
 --- !u!4 &2001324000
 Transform:
